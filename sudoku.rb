@@ -25,7 +25,7 @@ class Sudoku
       puts ""  if col % 3 == 0
       puts ""
     end
-    puts "Entropy: #{self.entropy} (min=81|max=#{9*9*9})"
+    puts "Entropy: #{self.entropy}    (min=81|max=#{9*9*9})"
   end
 
   def to_s_t
@@ -40,42 +40,37 @@ class Sudoku
     puts "Entropy: #{self.entropy} (min=81|max=#{9*9*9})"
   end
 
-  def reduce_line
-    solved = self.to_field
-    (1..9).to_a.each do |col|
-      items = solved.field[col-1].select{|item| item != 0}
-      reduce_single_line(col, items)
+  # reduce possibilities by numbers already determined
+  def reduce_solved
+    before = 9*9*9
+    after = entropy
+    while before > after
+      before = after
+      reduce_line
+      reduce_col
+      reduce_grid
+      after = entropy
     end
     self
   end
 
-  def reduce_col
-    solved = self.to_field_transpose
-    (1..9).to_a.each do |line|
-      items = solved.field[line-1].select{|item| item != 0}
-      reduce_single_col(line, items)
-    end
-    self
+  # find numbers that can only be on one position (hidden in other solutions)
+  def find_single_hidden
+    before = self.entropy
+    reduce_hidden_single_line
+    reduce_hidden_single_col
+    reduce_hidden_single_grid
+    reduce_solved if before > self.entropy
   end
 
-  def reduce_hidden_single
-    (1..9).to_a.each do |line|
-      solutions = to_field
-      find_single_in_line(line, solutions.field[line-1])
-    end
-    (1..9).to_a.each do |col|
-      solutions = to_field_transpose
-      find_single_in_col(col, solutions.field[col-1])
-    end
-    self
-  end
-
-  def reduce_grid
-    iterator((1..3)){|col,line|
-      reduce_single_grid(col, line, solved_grid(col, line).flatten)
-      scan_single_grid(col,line, solved_grid(col, line).flatten)
-    }
-    self
+  # find 2 equal number-pairs in one line/col/grid
+  # -> reduce these numbers from the respective line/col/grid
+  def find_pair
+    before = self.entropy
+    reduce_pair_line
+    reduce_pair_col
+    reduce_pair_grid
+    reduce_solved if before > self.entropy
   end
 
   def reduce_advance_scan
@@ -93,15 +88,28 @@ class Sudoku
     self
   end
 
-  def iterator(range)
-    range.to_a.each do |col|
-      range.to_a.each do |line|
-        yield(col, line)
-      end
+  def reduce_line
+    solved = self.to_field
+    (1..9).to_a.each do |line|
+      items = solved.field[line-1].select{|item| item != 0}
+      reduce_single_line(line, items)
     end
   end
 
-#private
+  def reduce_col
+    solved = self.to_field_transpose
+    (1..9).to_a.each do |col|
+      items = solved.field[col-1].select{|item| item != 0}
+      reduce_single_col(col, items)
+    end
+  end
+
+  def reduce_grid
+    iterator((1..3)){|col,line|
+      reduce_single_grid(col, line, solved_grid(col, line).flatten)
+      scan_single_grid(col,line, solved_grid(col, line).flatten)
+    }
+  end
 
   def reduce_single_line(col, items)
     (1..9).to_a.each do |line|
@@ -115,42 +123,135 @@ class Sudoku
     end
   end
 
-  def find_single_in_line(line, solution_line)
-    statistics = {}
-    (1..9).to_a.each do |col|
-      @field[line][col].each do |item|
-        statistics[item] = (statistics[item]||0) + 1
-      end
+  def reduce_hidden_single_line
+    (1..9).to_a.each do |line|
+      solutions = to_field
+      find_single_in_line(line, solutions.field[line-1])
     end
+  end
+
+  def reduce_hidden_single_col
+    (1..9).to_a.each do |col|
+      solutions = to_field_transpose
+      find_single_in_col(col, solutions.field[col-1])
+    end
+  end
+
+  def reduce_hidden_single_grid
+    iterator((1..3)) { |col, line|
+      find_single_in_grid(col,line)
+    }
+  end
+
+  def find_single_in_line(line, solution_line)
+    statistics = statistics_line(line)
     new_solutions = statistics.select{|key,value| value == 1}.select{|key,value| !solution_line.include?(key)}
     new_solutions.each do |key, _|
       (1..9).to_a.each do |col|
         @field[line][col] = [key] if @field[line][col].include?(key)
       end
     end
-    puts "found new 'hidden_single' in line(#{line}): #{new_solutions}" if new_solutions.size > 0
     reduce_single_line(line, new_solutions.keys) if new_solutions.size > 0
     self
   end
 
   def find_single_in_col(col, solution_line)
-    statistics = {}
-    (1..9).to_a.each do |line|
-      @field[line][col].each do |item|
-        statistics[item] = (statistics[item]||0) + 1
-      end
-    end
+    statistics = statistics_col(col)
     new_solutions = statistics.select{|key,value| value == 1}.select{|key,value| !solution_line.include?(key)}
     new_solutions.each do |key, _|
       (1..9).to_a.each do |line|
         @field[line][col] = [key] if @field[line][col].include?(key)
       end
     end
-    puts "found new 'hidden_single' in col(#{col}): #{new_solutions}" if new_solutions.size > 0
     reduce_single_col(col, new_solutions.keys) if new_solutions.size > 0
     self
   end
 
+  def find_single_in_grid(col, line)
+    col_off = (col-1)*3
+    line_off = (line-1)*3
+    statistics = statistics_grid(col,line)
+    old_solutions = solutions_grid(col,line)
+    return if old_solutions.size == 9 # grid already solved
+    new_solutions = statistics.select{|key,value| value == 1}.select{|key,value| !old_solutions.include?(key)}
+    new_solutions.each do |key, _|
+      iterator((1..3)){ |col, line|
+        @field[col_off+col][line_off+line] = [key] if @field[col_off+col][line_off+line].include?(key)
+      }
+    end
+    reduce_single_grid(col,line, new_solutions.keys) if new_solutions.size > 0
+    self
+  end
+
+  def reduce_pair_line
+    (1..9).to_a.each do |line|
+      find_pair_line(line)
+    end
+  end
+
+  def reduce_pair_col
+    (1..9).to_a.each do |col|
+      find_pair_col(col)
+    end
+  end
+
+  def reduce_pair_grid
+    iterator((1..3)){ |line,col|
+      find_pair_grid(line,col)
+    }
+  end
+
+  def find_pair_line(line)
+    pairs = @field[line].select{|key,value| value.size == 2}
+    return if pairs.size < 2
+    doubles = double_pairs(pairs)
+    doubles.each do |pair|
+      (1..9).to_a.each do |col|
+        @field[line][col] -= pair unless @field[line][col] == pair
+      end
+    end
+  end
+
+  def find_pair_col(col)
+    pairs = {}
+    (1..9).to_a.each do |line|
+      pairs[line] = @field[line][col] if @field[line][col].size == 2
+    end
+    return if pairs.size < 2
+    doubles = double_pairs(pairs)
+    doubles.each do |pair|
+      (1..9).to_a.each do |line|
+        @field[line][col] -= pair unless @field[line][col] == pair
+      end
+    end
+  end
+
+  def find_pair_grid(line,col)
+    col_off = (col-1)*3
+    line_off = (line-1)*3
+    pairs = {}
+    iterator((1..3)){ |line, col|
+      pairs[(line-1)*3+col] = @field[line_off+line][col_off+col] if @field[line_off+line][col_off+col].size == 2
+    }
+    doubles = double_pairs(pairs)
+    doubles.each do |pair|
+      iterator((1..3)){ |line,col|
+        @field[line_off+line][col_off+col] -= pair unless @field[line_off+line][col_off+col] == pair
+      }
+    end
+  end
+
+  def double_pairs(pairs)
+    doubles = []
+    pairs.each do |keya, valuea|
+      pairs.each do |keyb, valueb|
+        if valuea == valueb && keya != keyb
+          doubles.push(valuea)
+        end
+      end
+    end
+    doubles.uniq
+  end
 
   def advanced_scan_grid(grid_col, grid_line)
     col_off = (grid_col-1)*3
@@ -221,12 +322,7 @@ class Sudoku
   def scan_single_grid(col,line, solved_items)
     col_off = (col-1)*3
     line_off = (line-1)*3
-    statistics = {}
-    iterator((1..3)){|col,line|
-      @field[col_off+col][line_off+line].each do |item|
-        statistics[item] = (statistics[item]||0) + 1
-      end
-    }
+    statistics = statistics_grid(col,line)
     single_pos_items = statistics.select{|key,item| item == 1}.keys
     new_solved_item = single_pos_items-solved_items
     new_solved_item.each do |found_item|
@@ -304,12 +400,62 @@ class Sudoku
     line_a.select{|item| line_b.include?(item)} || []
   end
 
+  def statistics_grid(col,line)
+    col_off = (col-1)*3
+    line_off = (line-1)*3
+    statistics = {}
+    iterator((1..3)){|col,line|
+      @field[col_off+col][line_off+line].each do |item|
+        statistics[item] = (statistics[item]||0) + 1
+      end
+    }
+    statistics
+  end
+
+  def statistics_line(line)
+    statistics = {}
+    (1..9).to_a.each do |col|
+      @field[line][col].each do |item|
+        statistics[item] = (statistics[item]||0) + 1
+      end
+    end
+    statistics
+  end
+
+  def statistics_col(col)
+    statistics = {}
+    (1..9).to_a.each do |line|
+      @field[line][col].each do |item|
+        statistics[item] = (statistics[item]||0) + 1
+      end
+    end
+    statistics
+  end
+
+  def solutions_grid(col,line)
+    col_off = (col-1)*3
+    line_off = (line-1)*3
+    solutions = []
+    iterator((1..3)){|col,line|
+      solutions.push(@field[col_off+col][line_off+line]) if @field[col_off+col][line_off+line].size == 1
+    }
+    solutions.flatten
+  end
+
   def entropy
     sum = 0
     iterator((1..9)) { |col, line|
       sum += @field[col][line].size
     }
     sum
+  end
+
+  def iterator(range)
+    range.to_a.each do |col|
+      range.to_a.each do |line|
+        yield(col, line)
+      end
+    end
   end
 
   def to_field

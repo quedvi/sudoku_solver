@@ -1,26 +1,24 @@
 require("./sudoku.rb")
 require("./sudoku_field.rb")
 
-init = SudokuField.new(:evil)
+init = SudokuField.new(:hard)
 sudoku = Sudoku.new(init)
-sudoku
 
 step = 0
 
 until sudoku.to_field.solved?
-  sudoku.reduce_line
-  sudoku.reduce_col
-  sudoku.reduce_grid
+  sudoku.reduce_solved
+  sudoku.find_single_hidden
+  sudoku.reduce_solved
+  sudoku.find_pair
+  sudoku.reduce_solved
+
   sudoku.reduce_line_grid
   sudoku.reduce_col_grid
   sudoku.reduce_advance_scan
-  sudoku.reduce_hidden_single
   step +=1
   break if step % 50 == 0
 end
-
-sudoku
-sudoku.find_single_in_col(1, sudoku.to_field_transpose.field[0])
 
 
 easy:
