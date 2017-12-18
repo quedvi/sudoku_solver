@@ -20,12 +20,12 @@ class Sudoku
       reduce_solved
       find_pair
       reduce_solved
-#      find_claiming_pair
+      find_claiming_pair
       reduce_solved
 
-      reduce_line_grid
-      reduce_col_grid
-      reduce_advance_scan
+      # reduce_line_grid
+      # reduce_col_grid
+      # reduce_advance_scan
       step +=1
       break if step % 50 == 0
     end
