@@ -12,6 +12,28 @@ class Sudoku
     }
   end
 
+  def solve
+    step = 0
+    until to_field.solved?
+      reduce_solved
+      find_single_hidden
+      reduce_solved
+      find_pair
+      reduce_solved
+#      find_claiming_pair
+      reduce_solved
+
+      reduce_line_grid
+      reduce_col_grid
+      reduce_advance_scan
+      step +=1
+      break if step % 50 == 0
+    end
+    puts "solved in #{step} steps.\n" if to_field.solved?
+    puts "not solved \n" if step >= 50
+    self
+  end
+
   def inspect
     to_s
   end
@@ -71,6 +93,19 @@ class Sudoku
     reduce_pair_col
     reduce_pair_grid
     reduce_solved if before > self.entropy
+    self
+  end
+
+  # find 2/3 appearances of an unsolved number in a single grid aligned in one row/col
+  # where this number can not be solved outside this grid
+  def find_claiming_pair
+    iterator((1..3)){|col,line|
+      scan_claiming_pair_line(col,line)
+      reduce_solved
+      scan_claiming_pair_col(col,line)
+      reduce_solved
+    }
+    self
   end
 
   def reduce_advance_scan
@@ -253,28 +288,82 @@ class Sudoku
     doubles.uniq
   end
 
+  def scan_claiming_pair_line(grid_line, grid_col)
+    col_off = (grid_col-1)*3
+    line_off = (grid_line-1)*3
+    all = (1..9).to_a
+    (1..3).to_a.each do |line|
+      remaining = all - candidates_outside_grid_line(line_off+line, (1..9).to_a - (col_off+1..col_off+3).to_a)
+      # puts "candidates ... (#{line_off+line},#{(1..9).to_a - (col_off..col_off+3).to_a})"
+      # puts "#{candidates_outside_grid_line(line_off+line, (1..9).to_a - (col_off..col_off+3).to_a)}"
+      # puts "#{remaining}(line)"
+      if remaining.size > 0
+        iterator((1..3)){ |lines,cols|
+          next if lines == line
+          # puts "@field[#{line_off+lines}][#{col_off+cols}] = #{@field[line_off+lines][col_off+cols]} - #{remaining}"
+          @field[line_off+lines][col_off+cols] -= remaining
+          # puts "--> #{@field[line_off+lines][col_off+cols]}"
+        }
+
+      end
+    end
+  end
+
+  def scan_claiming_pair_col(grid_line, grid_col)
+    col_off = (grid_col-1)*3
+    line_off = (grid_line-1)*3
+    all = (1..9).to_a
+    (1..3).to_a.each do |col|
+      remaining = all - candidates_outside_grid_col(col_off+col, (1..9).to_a - (line_off+1..line_off+3).to_a)
+      # puts "#{remaining}(col)"
+      if remaining.size > 1
+        iterator((1..3)){ |lines,cols|
+          next if cols == col
+          # puts "@field[#{line_off+lines}][#{col_off+cols}] = #{@field[line_off+lines][col_off+cols]} - #{remaining}"
+          @field[line_off+lines][col_off+cols] -= remaining
+          # puts "--> #{@field[line_off+lines][col_off+cols]}"
+        }
+      end
+    end
+  end
+
+  def candidates_outside_grid_line(line, indexes)
+    candidates = []
+    indexes.each do |col|
+      # puts "get[#{line}][#{col}]= #{@field[line][col]}"
+      candidates +=@field[line][col]
+    end
+    # puts "--> outside: #{candidates.uniq}"
+    candidates.uniq
+  end
+
+  def candidates_outside_grid_col(col, indexes)
+    candidates = []
+    indexes.each do |line|
+      #puts "get[#{line}][#{col}]= #{@field[line][col]}"
+      candidates +=@field[line][col]
+    end
+    #puts "--> outside: #{candidates.uniq}"
+    candidates.uniq
+  end
+
   def advanced_scan_grid(grid_col, grid_line)
     col_off = (grid_col-1)*3
     line_off = (grid_line-1)*3
 
     ((1..3).to_a-[grid_col]).each do |col|
       uniq_col = uniq_in_col(col, grid_line)
-      (1..3).to_a.each do |cols|
-        @field[col_off+cols][line_off+1] -= uniq_col[1] if @field[col_off+cols][line_off+1].size > 1
-        @field[col_off+cols][line_off+2] -= uniq_col[2] if @field[col_off+cols][line_off+2].size > 1
-        @field[col_off+cols][line_off+3] -= uniq_col[3] if @field[col_off+cols][line_off+3].size > 1
-      end
+      iterator((1..3)){ |cols,lines|
+        @field[col_off+cols][line_off+lines] -= uniq_col[lines] if @field[col_off+cols][line_off+lines].size > 1
+      }
     end
 
     ((1..3).to_a-[grid_line]).each do |line|
       uniq_line = uniq_in_line(grid_col, line)
-      (1..3).to_a.each do |lines|
-        @field[col_off+1][line_off+lines] -= uniq_line[1] if @field[col_off+1][line_off+lines].size > 1
-        @field[col_off+2][line_off+lines] -= uniq_line[2] if @field[col_off+2][line_off+lines].size > 1
-        @field[col_off+3][line_off+lines] -= uniq_line[3] if @field[col_off+3][line_off+lines].size > 1
-      end
+      iterator((1..3)){ |lines, cols|
+        @field[col_off+cols][line_off+lines] -= uniq_line[cols] if @field[col_off+cols][line_off+lines].size > 1
+      }
     end
-
     self
   end
 
